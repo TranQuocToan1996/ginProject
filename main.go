@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/mattn/go-colorable"
 )
@@ -15,4 +17,12 @@ func main() {
 		})
 	})
 	router.Run() // Listen for "/" on port 8080
+}
+
+type Recipe struct {
+	Name         string    `json:"name"`
+	Tags         []string  `json:"tags"`
+	Ingredients  []string  `json:"ingredients"`
+	Instructions []string  `json:"instructions"`
+	PublishedAt  time.Time `json:"publishedAt"`
 }
