@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"io/ioutil"
+
 	"github.com/TranQuocToan1996/ginProject/model"
 	"github.com/TranQuocToan1996/ginProject/recipe"
 	"github.com/gin-gonic/gin"
@@ -10,6 +13,8 @@ import (
 // init will be executed during the startup of application
 func init() {
 	recipe.Recipes = make([]*model.Recipe, 0)
+	jsonByte, _ := ioutil.ReadFile("recipes.json")
+	_ = json.Unmarshal(jsonByte, &recipe.Recipes)
 }
 
 func main() {
@@ -23,7 +28,8 @@ func main() {
 		})
 	})
 
-	router.POST("/recipes", recipe.NewRecipe)
+	router.POST("/recipes", recipe.AddNewRecipe)
+	router.GET("/recipes", recipe.ListRecipes)
 
 	router.Run() // Listen for "/" on port 8080
 }
