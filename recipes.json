@@ -37,5 +37,17 @@
 		],
 		"instructions": ["Step 1.", "Step 2.", "Step 3."],
 		"publishedAt": "2022-06-03T20:57:44.4962807+07:00"
+	},
+	{
+		"name": "Homemade Pizza3",
+		"tags": ["italian", "pizza", "dinner"],
+		"ingredients": [
+			"pizza dough",
+			"tomato sauce",
+			"olive oil",
+			"7 ounces fresh mozzarella cheese, cut into 1/2-inch cubes",
+			"5 - 6 large fresh basil leaves"
+		],
+		"instructions": []
 	}
 ]
