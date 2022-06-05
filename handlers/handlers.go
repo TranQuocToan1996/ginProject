@@ -2,32 +2,36 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/TranQuocToan1996/ginProject/models"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+const noExpirationTimeRedis = 0
+
 type RecipesHandler struct {
-	collection *mongo.Collection
-	ctx        context.Context
+	collection  *mongo.Collection
+	ctx         context.Context
+	redisClient *redis.Client
 }
 
-func NewRecipesHandler(ctx context.Context, collection *mongo.Collection) *RecipesHandler {
+func NewRecipesHandler(ctx context.Context, collection *mongo.Collection, redisClient *redis.Client) *RecipesHandler {
 	return &RecipesHandler{
-		collection: collection,
-		ctx:        ctx,
+		collection:  collection,
+		ctx:         ctx,
+		redisClient: redisClient,
 	}
 }
-
-// Recipes holds list of recipes
-var Recipes []*models.Recipe
 
 // AddNewRecipe is handler for POST request that include a recipe in JSON
 func (handler *RecipesHandler) AddNewRecipe(c *gin.Context) {
@@ -45,25 +49,54 @@ func (handler *RecipesHandler) AddNewRecipe(c *gin.Context) {
 			gin.H{"error": "Error while inserting a new recipe"})
 		return
 	}
+
+	// The data cached in memory, so if we install/update new recipe in mongo. The cached not update yet.
+	// There are 2 solutions for this situation.
+	// First, Set Time TO Live (TTL) for the recipes.
+	// Second is delete recipes after install/update new recipe. The redis will load again when we call ListRecipes.
+	// In the scope of project, the data not so much. So we choose 2nd solution
+	handler.redisClient.Del("recipes")
+	log.Println("Removed redis recipes!")
+
 	c.JSON(http.StatusOK, recipe)
 }
 
 // ListRecipes returns a list of recipes in JSON format
 func (handler *RecipesHandler) ListRecipes(c *gin.Context) {
-	cursor, err := handler.collection.Find(handler.ctx, bson.M{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError,
-			gin.H{"error": err.Error()})
-		return
-	}
-	defer cursor.Close(handler.ctx)
 	recipes := make([]models.Recipe, 0)
-	for cursor.Next(handler.ctx) {
-		var recipe models.Recipe
-		cursor.Decode(&recipe)
-		recipes = append(recipes, recipe)
+
+	redisVal, err := handler.redisClient.Get("recipes").Result()
+	if err == redis.Nil {
+		log.Println("Redis nil, Need to query data from mongo!")
+		// Query mongo
+		cursor, err := handler.collection.Find(handler.ctx, bson.M{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError,
+				gin.H{"error": err.Error()})
+			return
+		}
+		defer cursor.Close(handler.ctx)
+
+		for cursor.Next(handler.ctx) {
+			var recipe models.Recipe
+			cursor.Decode(&recipe)
+			recipes = append(recipes, recipe)
+		}
+		// Redis value has to be a string -> need encode
+		data, _ := json.Marshal(recipes)
+
+		handler.redisClient.Set("recipes", string(data), noExpirationTimeRedis)
+		c.JSON(http.StatusOK, recipes)
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+	} else {
+		log.Println("Redis has data, starting query to Redis!")
+		json.Unmarshal([]byte(redisVal), &recipes)
+		c.JSON(http.StatusOK, recipes)
 	}
-	c.JSON(http.StatusOK, recipes)
+
 }
 
 // UpdateRecipes updates a recipe
@@ -90,41 +123,80 @@ func (handler *RecipesHandler) UpdateRecipes(c *gin.Context) {
 			gin.H{"error": err.Error()})
 		return
 	}
+
+	handler.redisClient.Del("recipes")
+	log.Println("Removed redis recipes!")
 	c.JSON(http.StatusOK, gin.H{"message": "Recipe	has been updated"})
 }
 
 // DeleteRecipes deletes a recipe
 func (handler *RecipesHandler) DeleteRecipes(c *gin.Context) {
-	// id := c.Param("id")
-	// deleted := false
-	// for i := 0; i < len(Recipes); i++ {
-	// 	if Recipes[i].ID == id {
-	// 		Recipes = append(Recipes[:i], Recipes[i+1:]...)
-	// 		deleted = true
-	// 		break
-	// 	}
-	// }
-	// if !deleted {
-	// 	c.JSON(http.StatusNotFound, gin.H{
-	// 		"error": "Recipe not found"})
-	// } else {
-	// 	c.JSON(http.StatusOK, gin.H{
-	// 		"message": "Recipe has been deleted",
-	// 	})
-	// }
+	id := c.Param("id")
+	objectId, _ := primitive.ObjectIDFromHex(id)
+	_, err := handler.collection.DeleteOne(handler.ctx, bson.M{
+		"_id": objectId,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Recipe has been deleted"})
 
 }
 
 // SearchRecipes seaches recepi bt the tags
 func (handler *RecipesHandler) SearchRecipes(c *gin.Context) {
-	// tag := c.Query("tag")
-	// listOfRecipes := []*models.Recipe{}
-	// for i := 0; i < len(Recipes); i++ {
-	// 	for _, t := range Recipes[i].Tags {
-	// 		if strings.EqualFold(t, tag) {
-	// 			listOfRecipes = append(listOfRecipes, Recipes[i])
-	// 		}
-	// 	}
-	// }
-	// c.JSON(http.StatusOK, listOfRecipes)
+
+	recipes := make([]models.Recipe, 0)
+
+	redisVal, err := handler.redisClient.Get("recipes").Result()
+	if err == redis.Nil {
+		log.Println("Redis nil, Need to query data from mongo!")
+		// Query mongo
+		cursor, err := handler.collection.Find(handler.ctx, bson.M{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError,
+				gin.H{"error": err.Error()})
+			return
+		}
+		defer cursor.Close(handler.ctx)
+
+		for cursor.Next(handler.ctx) {
+			var recipe models.Recipe
+			cursor.Decode(&recipe)
+			recipes = append(recipes, recipe)
+		}
+		// Redis value has to be a string -> need encode
+		data, _ := json.Marshal(recipes)
+
+		handler.redisClient.Set("recipes", string(data), noExpirationTimeRedis)
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+	} else {
+		log.Println("Redis has data, starting query to Redis!")
+		json.Unmarshal([]byte(redisVal), &recipes)
+	}
+
+	tag := c.Query("tag")
+	if len(tag) == 0 {
+		c.JSON(http.StatusOK, recipes)
+		return
+	}
+
+	listOfRecipes := make([]models.Recipe, 0)
+	for i := 0; i < len(recipes); i++ {
+		found := false
+		for _, t := range recipes[i].Tags {
+			if strings.EqualFold(t, tag) {
+				found = true
+			}
+		}
+		if found {
+			listOfRecipes = append(listOfRecipes, recipes[i])
+		}
+	}
+
+	c.JSON(http.StatusOK, listOfRecipes)
 }
