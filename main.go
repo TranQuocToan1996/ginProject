@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/TranQuocToan1996/ginProject/handlers"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -17,7 +19,7 @@ var recipesHandler *handlers.RecipesHandler
 // init will be executed during the startup of application
 func init() {
 	// Connect to mongodb
-	// MONGO_URI="mongodb://admin:password@localhost:27017/test?authSource=admin" MONGO_DATABASE=demo go run *.go
+	// MONGO_URI="mongodb://admin:password@localhost:27018/test?authSource=admin" MONGO_DATABASE=demo REDIS_PORT=6380 go run *.go
 	/* 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	   	defer cancel() */
 	ctx := context.Background()
@@ -33,13 +35,16 @@ func init() {
 
 	collection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
 
-	recipesHandler = handlers.NewRecipesHandler(ctx, collection)
+	// Connect redis
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("localhost:%v", os.Getenv("REDIS_PORT")),
+		Password: "",
+		DB:       0,
+	})
+	redisStatus := redisClient.Ping()
+	log.Println(redisStatus)
+	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
 
-	// result, err := collection.InsertMany(ctx, recipesInterface)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// log.Printf("Inserted %v recipes", len(result.InsertedIDs))
 }
 
 func main() {
@@ -73,3 +78,9 @@ func main() {
 }
 
 /* docker run -d --name mongodbgin -v mongoGinProject:/data/db -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password -p 27017:27017 mongo:4.4.3 */
+
+/* docker run -d --name redisinsight --link redisName -p 8002:800ngo)1 redislabs/redisinsight */
+
+// docker run -d --name redisForGin -p 6380:6379 redis:latest
+
+// ab -n 2000 -c 100 -g without-cache.data http://localhost:8080/recipes
