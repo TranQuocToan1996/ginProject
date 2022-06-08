@@ -35,6 +35,7 @@ func NewRecipesHandler(ctx context.Context, collection *mongo.Collection, redisC
 
 // AddNewRecipe is handler for POST request that include a recipe in JSON
 func (handler *RecipesHandler) AddNewRecipe(c *gin.Context) {
+
 	var recipe models.Recipe
 	if err := c.ShouldBindJSON(&recipe); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -144,7 +145,28 @@ func (handler *RecipesHandler) DeleteRecipes(c *gin.Context) {
 
 }
 
-// SearchRecipes seaches recepi bt the tags
+// SearchRecipeById return 1 recipe by mongo _id
+func (handler *RecipesHandler) SearchRecipeById(c *gin.Context) {
+	id := c.Param("id")
+	objectId, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	singleResulst := handler.collection.FindOne(handler.ctx, bson.M{
+		"_id": objectId,
+	})
+	returnRecipe := models.Recipe{}
+	err = singleResulst.Decode(&returnRecipe)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, returnRecipe)
+}
+
+// SearchRecipes seaches recipes by the tags
 func (handler *RecipesHandler) SearchRecipes(c *gin.Context) {
 
 	recipes := make([]models.Recipe, 0)

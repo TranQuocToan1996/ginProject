@@ -15,11 +15,12 @@ import (
 )
 
 var recipesHandler *handlers.RecipesHandler
+var authHandler *handlers.AuthHandler
 
 // init will be executed during the startup of application
 func init() {
 	// Connect to mongodb
-	// MONGO_URI="mongodb://admin:password@localhost:27018/test?authSource=admin" MONGO_DATABASE=demo REDIS_PORT=6380 go run *.go
+	// MONGO_URI="mongodb://admin:password@localhost:27018/test?authSource=admin" MONGO_DATABASE=demo REDIS_PORT=6380 X_API_KEY=eUbP9shywUygMx7u go run *.go
 	/* 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	   	defer cancel() */
 	ctx := context.Background()
@@ -33,7 +34,8 @@ func init() {
 	}
 	log.Println("Connected to mongodb!")
 
-	collection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
+	collectionRecipes := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
+	collectionUsers := client.Database(os.Getenv("MONGO_DATABASE")).Collection("users")
 
 	// Connect redis
 	redisClient := redis.NewClient(&redis.Options{
@@ -43,36 +45,38 @@ func init() {
 	})
 	redisStatus := redisClient.Ping()
 	log.Println(redisStatus)
-	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
+
+	// Handler
+	recipesHandler = handlers.NewRecipesHandler(ctx, collectionRecipes, redisClient)
+	authHandler = handlers.NewAuthHandler(ctx, collectionUsers, redisClient)
 
 }
 
 func main() {
-	/* 	// ctx := context.Background()
-	   	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	   	defer cancel()
-	   	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
-	   	if err != nil {
-	   		log.Fatal(err)
-	   	}
-	   	if err = client.Ping(context.TODO(), readpref.Primary()); err != nil {
-	   		log.Fatal(err)
-	   	}
-	   	log.Println("Connected to mongodb!") */
-
 	router := gin.Default()
-
+	// store, _ := redisStore.NewStore(10, "tcp", "localhost:6380", "", []byte("secret"))
+	// router.Use(sessions.Sessions("recipes_api", store))
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "hello world",
 		})
 	})
 
-	router.POST("/recipes", recipesHandler.AddNewRecipe)
-	router.GET("/recipes", recipesHandler.ListRecipes)
-	router.PUT("/recipes/:id", recipesHandler.UpdateRecipes)
-	router.DELETE("/recipes/:id", recipesHandler.DeleteRecipes)
 	router.GET("/recipes/search", recipesHandler.SearchRecipes)
+	router.GET("/recipes/search/:id", recipesHandler.SearchRecipeById)
+	router.POST("/signin", authHandler.SignInHandler)
+	router.POST("/signup", authHandler.RegisterAccountHandler)
+	router.POST("/refresh", authHandler.RefreshTokenHandler)
+	// router.POST("/signout", authHandler.SignOutHandler)
+
+	authorized := router.Group("/")
+	authorized.Use(authHandler.AuthMiddleware())
+	{
+		authorized.POST("/recipes", recipesHandler.AddNewRecipe)
+		authorized.GET("/recipes", recipesHandler.ListRecipes)
+		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipes)
+		authorized.DELETE("/recipes/:id", recipesHandler.DeleteRecipes)
+	}
 
 	router.Run() // Default Listen for "/" on port 8080
 }
