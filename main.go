@@ -78,7 +78,9 @@ func main() {
 		authorized.DELETE("/recipes/:id", recipesHandler.DeleteRecipes)
 	}
 
-	router.Run() // Default Listen for "/" on port 8080
+	// openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout certs/localhost.key -out certs/localhost.crt
+	router.RunTLS(":443", "certs/localhost.crt", "certs/localhost.key")
+	// router.Run() // Default Listen for "/" on port 8080
 }
 
 /* docker run -d --name mongodbgin -v mongoGinProject:/data/db -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password -p 27017:27017 mongo:4.4.3 */

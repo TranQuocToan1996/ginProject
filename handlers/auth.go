@@ -9,11 +9,14 @@ import (
 	"time"
 
 	"github.com/TranQuocToan1996/ginProject/models"
+	"github.com/auth0-community/go-auth0"
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
 	"github.com/golang-jwt/jwt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"gopkg.in/square/go-jose.v2"
 )
 
 type AuthHandler struct {
@@ -185,9 +188,6 @@ func (handler *AuthHandler) RefreshTokenHandler(c *gin.Context) {
 
 }
 
-
-
-
 // AuthMiddleware_APIKEY apply APIKEY
 func (handler *AuthHandler) AuthMiddleware_APIKEY() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -208,19 +208,19 @@ func (handler *AuthHandler) AuthMiddleware_APIKEY() gin.HandlerFunc {
 // AuthMiddleware_session obtain the token from the request cookie. If
 // the cookie is not set, we return a 403 code (Forbidden) by returning an http.
 // StatusForbidden response, as illustrated in the following code snippet
-// func (handler *AuthHandler) AuthMiddleware_session() gin.HandlerFunc {
-// 	return func(c *gin.Context) {
-// 		session := sessions.Default(c)
-// 		sessionToken := session.Get("token")
-// 		if sessionToken == nil {
-// 			c.JSON(http.StatusForbidden, gin.H{
-// 				"message": "Not logged",
-// 			})
-// 			c.Abort()
-// 		}
-// 		c.Next()
-// 	}
-// }
+func (handler *AuthHandler) AuthMiddleware_session() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session := sessions.Default(c)
+		sessionToken := session.Get("token")
+		if sessionToken == nil {
+			c.JSON(http.StatusForbidden, gin.H{
+				"message": "Not logged",
+			})
+			c.Abort()
+		}
+		c.Next()
+	}
+}
 
 // AuthMiddleware JWT
 /*  Next, we update the authentication middleware in handler/auth.go to check for the Authorization header instead of the X-API-KEY attribute. The header is then passed to the ParseWithClaims method. It generates a signature using the header and payload from the Authorization header and the secret key. Ten, it verifies if the signature matches the one on the JWT. If not, the JWT is not considered valid, and a 401 status code is returned. The Go implementation is shown here */
@@ -237,6 +237,22 @@ func (handler *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 		}
 		if token == nil || !token.Valid {
 			c.AbortWithStatus(http.StatusUnauthorized)
+		}
+		c.Next()
+	}
+}
+
+func (handler *AuthHandler) AuthMiddleware_Auth0() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var auth0Domain = "https://" + os.Getenv("AUTH0_DOMAIN") + "/"
+		client := auth0.NewJWKClient(auth0.JWKClientOptions{URI: auth0Domain + ".well-known/jwks.json"}, nil)
+		configuration := auth0.NewConfiguration(client, []string{os.Getenv("AUTH0_API_IDENTIFIER")}, auth0Domain, jose.RS256)
+		validator := auth0.NewValidator(configuration, nil)
+		_, err := validator.ValidateRequest(c.Request)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid token"})
+			c.Abort()
+			return
 		}
 		c.Next()
 	}
