@@ -1,3 +1,7 @@
 package models
 
-const Cost = 14
+//TODO: Make file config in mongodb or firestore or in env variable
+const (
+	Cost                  = 14
+	NoExpirationTimeRedis = 0
+)

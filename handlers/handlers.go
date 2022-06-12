@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
@@ -17,8 +18,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-const noExpirationTimeRedis = 0
-
 type RecipesHandler struct {
 	collection  *mongo.Collection
 	ctx         context.Context
@@ -31,6 +30,84 @@ func NewRecipesHandler(ctx context.Context, collection *mongo.Collection, redisC
 		ctx:         ctx,
 		redisClient: redisClient,
 	}
+}
+
+func (handler *RecipesHandler) IndexHandlerHTML(c *gin.Context) {
+	recipes := make([]*models.Recipe, 0)
+
+	//TODO: filter only the picture URL, _id in redis
+	//TODO: check for new recipe install inmongo by another method
+	redisVal, err := handler.redisClient.Get("recipes").Result()
+	if err == redis.Nil {
+		log.Println("Redis nil, Need to query data from mongo!")
+		//TODO Query mongo with picture URL, _id
+		cursor, err := handler.collection.Find(handler.ctx, bson.M{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError,
+				gin.H{"error": err.Error()})
+			return
+		}
+		defer cursor.Close(handler.ctx)
+
+		for cursor.Next(handler.ctx) {
+			var recipe *models.Recipe
+			cursor.Decode(&recipe)
+			recipes = append(recipes, recipe)
+		}
+		// Redis value has to be a string -> need encode
+		data, err := json.Marshal(&recipes)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		handler.redisClient.Set("recipes", string(data), models.NoExpirationTimeRedis)
+	} else if err != nil {
+		// Do nothing
+		log.Println("Query Redis has error:", err)
+	} else {
+		log.Println("Redis has data, starting query to Redis!")
+		json.Unmarshal([]byte(redisVal), &recipes)
+
+	}
+
+	if len(recipes) == 0 {
+		bytes, err1 := ioutil.ReadFile("recipesWithImages.json")
+		err2 := json.Unmarshal(bytes, &recipes)
+		if err1 != nil || err2 != nil {
+			recipes = append(recipes, &models.Recipe{
+				Name:    "Burger",
+				Picture: "/static/images/burger.jpg",
+			})
+			recipes = append(recipes, &models.Recipe{
+				Name:    "Pizza",
+				Picture: "/static/images/pizza.jpg",
+			})
+			recipes = append(recipes, &models.Recipe{
+				Name:    "Tacos",
+				Picture: "/static/images/tacos.jpg",
+			})
+		}
+	}
+
+	respRecipe := make([]*models.Recipe, 0)
+	for _, recipe := range recipes {
+		if len(recipe.Picture) > 0 && len(recipe.ID) > 0 {
+			respRecipe = append(respRecipe, recipe)
+		}
+	}
+
+	c.HTML(http.StatusOK, "index.html", gin.H{
+		"recipes": respRecipe,
+	})
+
+}
+
+
+func (handler *RecipesHandler) IndexHandlerFile(c *gin.Context) {
+	c.File("./static/HTML/index.html")
 }
 
 // AddNewRecipe is handler for POST request that include a recipe in JSON
@@ -64,7 +141,7 @@ func (handler *RecipesHandler) AddNewRecipe(c *gin.Context) {
 
 // ListRecipes returns a list of recipes in JSON format
 func (handler *RecipesHandler) ListRecipes(c *gin.Context) {
-	recipes := make([]models.Recipe, 0)
+	recipes := make([]*models.Recipe, 0)
 
 	redisVal, err := handler.redisClient.Get("recipes").Result()
 	if err == redis.Nil {
@@ -79,14 +156,14 @@ func (handler *RecipesHandler) ListRecipes(c *gin.Context) {
 		defer cursor.Close(handler.ctx)
 
 		for cursor.Next(handler.ctx) {
-			var recipe models.Recipe
+			var recipe *models.Recipe
 			cursor.Decode(&recipe)
 			recipes = append(recipes, recipe)
 		}
 		// Redis value has to be a string -> need encode
-		data, _ := json.Marshal(recipes)
+		data, _ := json.Marshal(&recipes)
 
-		handler.redisClient.Set("recipes", string(data), noExpirationTimeRedis)
+		handler.redisClient.Set("recipes", string(data), models.NoExpirationTimeRedis)
 		c.JSON(http.StatusOK, recipes)
 	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -156,14 +233,16 @@ func (handler *RecipesHandler) SearchRecipeById(c *gin.Context) {
 	singleResulst := handler.collection.FindOne(handler.ctx, bson.M{
 		"_id": objectId,
 	})
-	returnRecipe := models.Recipe{}
-	err = singleResulst.Decode(&returnRecipe)
+	returnRecipe := &models.Recipe{}
+	err = singleResulst.Decode(returnRecipe)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.File("404.html")
 		return
 	}
 
-	c.JSON(http.StatusOK, returnRecipe)
+	c.HTML(http.StatusOK, "recipe.html", gin.H{
+		"recipe": returnRecipe,
+	})
 }
 
 // SearchRecipes seaches recipes by the tags
@@ -191,7 +270,7 @@ func (handler *RecipesHandler) SearchRecipes(c *gin.Context) {
 		// Redis value has to be a string -> need encode
 		data, _ := json.Marshal(recipes)
 
-		handler.redisClient.Set("recipes", string(data), noExpirationTimeRedis)
+		handler.redisClient.Set("recipes", string(data), models.NoExpirationTimeRedis)
 	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),

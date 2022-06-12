@@ -53,6 +53,8 @@ func (handler *AuthHandler) SignInHandler(c *gin.Context) {
 		return
 	}
 
+	//TODO: validate username and password length
+
 	var userHash models.User
 	handler.collection.FindOne(handler.ctx, bson.M{
 		"username": user.Name,
