@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/TranQuocToan1996/ginProject/handlers"
+	"github.com/gin-contrib/sessions"
+	redisStore "github.com/gin-contrib/sessions/redis"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -20,7 +22,7 @@ var authHandler *handlers.AuthHandler
 // init will be executed during the startup of application
 func init() {
 	// Connect to mongodb
-	// MONGO_URI="mongodb://admin:password@localhost:27018/test?authSource=admin" MONGO_DATABASE=demo REDIS_PORT=6380 X_API_KEY=eUbP9shywUygMx7u go run *.go
+
 	/* 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	   	defer cancel() */
 	ctx := context.Background()
@@ -54,8 +56,9 @@ func init() {
 
 func main() {
 	router := gin.Default()
-	// store, _ := redisStore.NewStore(10, "tcp", "localhost:6380", "", []byte("secret"))
-	// router.Use(sessions.Sessions("recipes_api", store))
+	router.SetTrustedProxies(nil)
+	store, _ := redisStore.NewStore(10, "tcp", fmt.Sprintf("localhost:%v", os.Getenv("REDIS_PORT")), "", []byte("secret"))
+	router.Use(sessions.Sessions("recipes_api", store))
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "hello world",
@@ -65,12 +68,12 @@ func main() {
 	router.GET("/recipes/search", recipesHandler.SearchRecipes)
 	router.GET("/recipes/search/:id", recipesHandler.SearchRecipeById)
 	router.POST("/signin", authHandler.SignInHandler)
-	router.POST("/signup", authHandler.RegisterAccountHandler)
-	router.POST("/refresh", authHandler.RefreshTokenHandler)
-	// router.POST("/signout", authHandler.SignOutHandler)
+	router.POST("/signup", authHandler.RegisterAccount)
+	router.POST("/refresh", authHandler.RefreshToken)
+	router.POST("/signout", authHandler.SignOut)
 
 	authorized := router.Group("/")
-	authorized.Use(authHandler.AuthMiddleware())
+	authorized.Use(authHandler.AuthMiddleware_session())
 	{
 		authorized.POST("/recipes", recipesHandler.AddNewRecipe)
 		authorized.GET("/recipes", recipesHandler.ListRecipes)
@@ -81,6 +84,7 @@ func main() {
 	// openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout certs/localhost.key -out certs/localhost.crt
 	router.RunTLS(":443", "certs/localhost.crt", "certs/localhost.key")
 	// router.Run() // Default Listen for "/" on port 8080
+	// MONGO_URI="mongodb://admin:password@localhost:27018/test?authSource=admin" MONGO_DATABASE=demo REDIS_PORT=6380 X_API_KEY=eUbP9shywUygMx7u go run *.go
 }
 
 /* docker run -d --name mongodbgin -v mongoGinProject:/data/db -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password -p 27017:27017 mongo:4.4.3 */
