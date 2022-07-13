@@ -16,3 +16,6 @@ type Recipe struct {
 	PublishedAt  time.Time          `json:"publishedAt" bson:"publishedAt"`
 	Picture      string             `json:"imageURL" bson:"imageURL"`
 }
+
+
+

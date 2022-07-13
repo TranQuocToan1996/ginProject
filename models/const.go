@@ -4,4 +4,5 @@ package models
 const (
 	Cost                  = 14
 	NoExpirationTimeRedis = 0
+	Dev                   = "development"
 )

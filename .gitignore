@@ -1,0 +1,7 @@
+.idea
+database.yml
+coverage.out
+*.sql
+*.env
+*.exe
+firestore.json
